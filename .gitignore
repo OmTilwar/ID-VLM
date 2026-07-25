@@ -1,0 +1,49 @@
+# ──── Python ────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ──── Data (large, download separately) ────
+data/raw/
+data/processed/*.json
+data/processed/*.jsonl
+
+# ──── Model outputs ────
+outputs/
+checkpoints/
+*.pth
+*.onnx
+*.gguf
+*.safetensors
+adapter_model/
+merged_model/
+
+# ──── Notebooks (keep .ipynb but ignore checkpoints) ────
+.ipynb_checkpoints/
+
+# ──── IDE ────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ──── OS ────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ──── Environment ────
+.env
+.venv/
+venv/
+env/
+
+# ──── pytest ────
+.pytest_cache/
+htmlcov/
+.coverage
