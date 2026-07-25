@@ -44,6 +44,12 @@ def compute_cer(predicted: str, ground_truth: str) -> float:
         Returns 0.0 if both strings are empty.
         Returns 1.0 if ground_truth is empty but predicted is not.
     """
+    # Convert non-string inputs safely
+    if not isinstance(predicted, str):
+        predicted = json.dumps(predicted) if isinstance(predicted, (dict, list)) else str(predicted if predicted is not None else "")
+    if not isinstance(ground_truth, str):
+        ground_truth = json.dumps(ground_truth) if isinstance(ground_truth, (dict, list)) else str(ground_truth if ground_truth is not None else "")
+
     if not ground_truth and not predicted:
         return 0.0
     if not ground_truth:
@@ -62,8 +68,8 @@ def compute_cer(predicted: str, ground_truth: str) -> float:
 
 
 def compute_field_accuracy(
-    pred_fields: Dict[str, str],
-    gt_fields: Dict[str, str],
+    pred_fields: Dict[str, Any],
+    gt_fields: Dict[str, Any],
     normalize: bool = True,
 ) -> Dict[str, Any]:
     """
@@ -91,21 +97,25 @@ def compute_field_accuracy(
         gt_value = gt_fields[field_name]
         pred_value = pred_fields.get(field_name, "")
 
+        # Safely convert non-string values (dicts, lists, ints, None) to str
+        gt_str = json.dumps(gt_value) if isinstance(gt_value, (dict, list)) else str(gt_value if gt_value is not None else "")
+        pred_str = json.dumps(pred_value) if isinstance(pred_value, (dict, list)) else str(pred_value if pred_value is not None else "")
+
         if normalize:
-            gt_norm = gt_value.strip().lower()
-            pred_norm = pred_value.strip().lower()
+            gt_norm = gt_str.strip().lower()
+            pred_norm = pred_str.strip().lower()
         else:
-            gt_norm = gt_value
-            pred_norm = pred_value
+            gt_norm = gt_str
+            pred_norm = pred_str
 
         match = (gt_norm == pred_norm)
-        cer = compute_cer(pred_value, gt_value)
+        cer = compute_cer(pred_str, gt_str)
 
         results[field_name] = {
             "match": match,
             "cer": cer,
-            "predicted": pred_value,
-            "ground_truth": gt_value,
+            "predicted": pred_str,
+            "ground_truth": gt_str,
         }
 
     # Aggregate

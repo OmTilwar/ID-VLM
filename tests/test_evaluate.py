@@ -167,6 +167,15 @@ class TestFieldAccuracy:
         assert result["exact_match_rate"] == 0.0
         assert result["all_correct"] is False
 
+    def test_non_string_field_values(self):
+        """Test handling of non-string values (dicts, ints, lists, None)."""
+        gt = {"surname": "SMITH", "age": "30"}
+        pred = {"surname": {"name": "SMITH"}, "age": 30}
+
+        result = compute_field_accuracy(pred, gt)
+        assert result["exact_match_rate"] == 0.5  # age matches '30' vs '30'
+        assert isinstance(result["per_field"]["surname"]["predicted"], str)
+
 
 # ──────────────────────────────────────────────
 # JSON Parsing Tests
