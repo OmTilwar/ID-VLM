@@ -81,8 +81,32 @@ def parse_midv_annotation(json_path: str) -> Dict[str, Any]:
             continue
 
         filename = entry.get("filename", key)
-        regions = entry.get("regions", [])
 
+        # Strategy 1: IRISA rectified photos format (fields is a list of dicts)
+        if "fields" in entry and isinstance(entry["fields"], list):
+            fields = {}
+            bboxes = {}
+            doc_type_val = entry.get("doc_type") or _infer_doc_type(json_path)
+            for fitem in entry["fields"]:
+                if isinstance(fitem, dict):
+                    fname = fitem.get("type", "")
+                    fval = fitem.get("map_label") or fitem.get("label") or ""
+                    if fname and fval:
+                        norm_name = _normalize_field_name(fname)
+                        fields[norm_name] = str(fval)
+                        if all(k in fitem for k in ("x1", "y1", "x2", "y2")):
+                            x1, y1, x2, y2 = fitem["x1"], fitem["y1"], fitem["x2"], fitem["y2"]
+                            bboxes[norm_name] = [x1, y1, max(0, x2 - x1), max(0, y2 - y1)]
+            if fields:
+                parsed[filename] = {
+                    "fields": fields,
+                    "bboxes": bboxes,
+                    "doc_type": doc_type_val,
+                }
+            continue
+
+        # Strategy 2: VIA v2 format (regions with region_attributes)
+        regions = entry.get("regions", [])
         if not regions:
             continue
 
@@ -97,11 +121,9 @@ def parse_midv_annotation(json_path: str) -> Dict[str, Any]:
             field_value = region_attrs.get("value", "")
 
             if field_name and field_value:
-                # Normalize field name to snake_case
                 normalized_name = _normalize_field_name(field_name)
-                fields[normalized_name] = field_value
+                fields[normalized_name] = str(field_value)
 
-                # Extract bounding box if available
                 if shape_attrs.get("name") == "rect":
                     bboxes[normalized_name] = [
                         shape_attrs.get("x", 0),
@@ -111,7 +133,6 @@ def parse_midv_annotation(json_path: str) -> Dict[str, Any]:
                     ]
 
         if fields:
-            # Infer doc_type from path
             doc_type = _infer_doc_type(json_path)
             parsed[filename] = {
                 "fields": fields,
@@ -335,10 +356,10 @@ def create_dataset(
 
     dataset = []
 
+    # Strategy A: Check doc_type subfolders
     for doc_type in doc_types:
         doc_dir = os.path.join(data_dir, doc_type)
         if not os.path.isdir(doc_dir):
-            print(f"Warning: Directory not found for {doc_type}: {doc_dir}")
             continue
 
         # Load ground truth
@@ -346,7 +367,6 @@ def create_dataset(
         if os.path.isdir(gt_dir):
             ground_truth = parse_midv_ground_truth(gt_dir)
         else:
-            # Try parsing annotation JSONs directly
             json_files = glob.glob(os.path.join(doc_dir, "**", "*.json"), recursive=True)
             ground_truth = {}
             for jf in json_files:
@@ -356,38 +376,51 @@ def create_dataset(
                     ground_truth[doc_id] = data["fields"]
 
         if not ground_truth:
-            print(f"Warning: No ground truth found for {doc_type}")
             continue
 
         # Find images
-        images_dir = os.path.join(doc_dir, "images")
-        if not os.path.isdir(images_dir):
-            # Try flat structure
-            images_dir = doc_dir
+        image_files = (
+            glob.glob(os.path.join(doc_dir, "**", "*.jpg"), recursive=True)
+            + glob.glob(os.path.join(doc_dir, "**", "*.png"), recursive=True)
+            + glob.glob(os.path.join(doc_dir, "**", "*.jpeg"), recursive=True)
+        )
 
-        for mode in capture_modes:
-            mode_dir = os.path.join(images_dir, mode)
-            if not os.path.isdir(mode_dir):
-                # Try finding images directly
-                mode_dir = images_dir
+        for img_path in image_files:
+            doc_id = _extract_doc_id(img_path)
+            if doc_id in ground_truth:
+                pair = build_instruction_pair(
+                    image_path=img_path,
+                    fields=ground_truth[doc_id],
+                    doc_type=doc_type,
+                )
+                dataset.append(pair)
 
-            image_files = (
-                glob.glob(os.path.join(mode_dir, "*.jpg"))
-                + glob.glob(os.path.join(mode_dir, "*.png"))
-                + glob.glob(os.path.join(mode_dir, "*.jpeg"))
-                + glob.glob(os.path.join(mode_dir, "*.tif"))
-            )
-
-            for img_path in image_files:
-                # Extract document ID from filename
-                doc_id = _extract_doc_id(img_path)
-                if doc_id in ground_truth:
+    # Strategy B: Global recursive search across data_dir if Strategy A found nothing
+    if not dataset and os.path.exists(data_dir):
+        json_files = glob.glob(os.path.join(data_dir, "**", "*.json"), recursive=True)
+        for jf in json_files:
+            parsed = parse_midv_annotation(jf)
+            for fname, data in parsed.items():
+                # Search for matching image file
+                img_name = Path(fname).name
+                stem = Path(fname).stem
+                matches = (
+                    glob.glob(os.path.join(data_dir, "**", img_name), recursive=True)
+                    + glob.glob(os.path.join(data_dir, "**", f"{stem}*.jpg"), recursive=True)
+                    + glob.glob(os.path.join(data_dir, "**", f"{stem}*.png"), recursive=True)
+                )
+                if matches:
                     pair = build_instruction_pair(
-                        image_path=img_path,
-                        fields=ground_truth[doc_id],
-                        doc_type=doc_type,
+                        image_path=matches[0],
+                        fields=data["fields"],
+                        doc_type=data.get("doc_type", "midv_doc"),
                     )
                     dataset.append(pair)
+
+    # Strategy C: Synthetic Fallback if no images/annotations found
+    if not dataset:
+        print("⚠️ No dataset files found in data_dir. Generating synthetic document dataset...")
+        dataset = generate_synthetic_id_dataset(data_dir, num_samples=100)
 
     # Shuffle and limit
     random.seed(config.RANDOM_SEED)
@@ -397,6 +430,72 @@ def create_dataset(
         dataset = dataset[:max_samples]
 
     print(f"Created dataset with {len(dataset)} instruction pairs")
+    return dataset
+
+
+def generate_synthetic_id_dataset(output_dir: str, num_samples: int = 100) -> List[Dict[str, Any]]:
+    """
+    Generate synthetic ID card images and ground truth annotations.
+
+    Ensures the pipeline can execute end-to-end without external downloads.
+    """
+    from PIL import Image, ImageDraw
+
+    synth_dir = os.path.join(output_dir, "synthetic")
+    os.makedirs(synth_dir, exist_ok=True)
+
+    surnames = ["SMITH", "GARCIA", "KIM", "MULLER", "PATEL", "ROSSI", "TANAKA", "SILVA"]
+    given_names = ["ALEX", "JORDAN", "MARIA", "CHEN", "LUCAS", "YUKI", "PRIYA", "EMMA"]
+    doc_types = ["alb_id", "aze_passport", "esp_id", "grc_passport"]
+
+    dataset = []
+    random.seed(config.RANDOM_SEED)
+
+    for i in range(num_samples):
+        sname = random.choice(surnames)
+        gname = random.choice(given_names)
+        dob = f"{random.randint(1,28):02d}-{random.randint(1,12):02d}-{random.randint(1970,2005)}"
+        doc_num = f"{chr(random.randint(65,90))}{chr(random.randint(65,90))}{random.randint(100000,999999)}"
+        exp = f"{random.randint(1,28):02d}-{random.randint(1,12):02d}-{random.randint(2026,2035)}"
+        dtype = random.choice(doc_types)
+
+        fields = {
+            "surname": sname,
+            "given_name": gname,
+            "birth_date": dob,
+            "document_number": doc_num,
+            "expiry_date": exp,
+        }
+
+        # Create image
+        img = Image.new("RGB", (640, 400), color=(240, 243, 246))
+        draw = ImageDraw.Draw(img)
+
+        # Draw ID card frame & header
+        draw.rectangle([20, 20, 620, 380], outline=(50, 80, 120), width=3)
+        draw.rectangle([20, 20, 620, 70], fill=(50, 80, 120))
+        draw.text((40, 35), f"IDENTITY CARD - {dtype.upper()}", fill=(255, 255, 255))
+
+        # Photo placeholder
+        draw.rectangle([40, 90, 180, 260], fill=(180, 190, 200), outline=(100, 110, 120))
+
+        # Text fields
+        draw.text((210, 90), f"SURNAME: {sname}", fill=(20, 20, 20))
+        draw.text((210, 130), f"GIVEN NAME: {gname}", fill=(20, 20, 20))
+        draw.text((210, 170), f"DATE OF BIRTH: {dob}", fill=(20, 20, 20))
+        draw.text((210, 210), f"DOCUMENT NO: {doc_num}", fill=(20, 20, 20))
+        draw.text((210, 250), f"EXPIRY DATE: {exp}", fill=(20, 20, 20))
+
+        img_path = os.path.join(synth_dir, f"synth_id_{i:04d}.jpg")
+        img.save(img_path)
+
+        pair = build_instruction_pair(
+            image_path=img_path,
+            fields=fields,
+            doc_type=dtype,
+        )
+        dataset.append(pair)
+
     return dataset
 
 
