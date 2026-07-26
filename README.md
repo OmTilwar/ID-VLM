@@ -8,29 +8,31 @@ Fine-tuned **Qwen2-VL-2B** via LoRA ([Unsloth](https://github.com/unslothai/unsl
 
 | Metric | Zero-Shot Baseline | Fine-Tuned (LoRA) | Δ |
 |---|---|---|---|
-| Field Exact Match | _TBD_ | _TBD_ | _TBD_ |
-| Character Error Rate (CER) | _TBD_ | _TBD_ | _TBD_ |
-| JSON Parse Rate | _TBD_ | _TBD_ | _TBD_ |
-| Document-Level Accuracy | _TBD_ | _TBD_ | _TBD_ |
-
-_Results will be filled after fine-tuning on Colab/Kaggle._
+| Field Exact Match | 7.7% | 9.4% | +1.8% |
+| Character Error Rate (CER) | 0.9365 | 0.9976 | +0.0611 |
+| JSON Parse Rate | 67.3% | 86.0% | +18.7% |
+| Document-Level Accuracy | 0.0% | 0.0% | +0.0% |
 
 ### Performance by Capture Condition
 
 | Condition | Baseline Exact Match | Fine-Tuned Exact Match |
 |---|---|---|
-| Scanned | _TBD_ | _TBD_ |
-| Photographed | _TBD_ | _TBD_ |
-| Video Frame | _TBD_ | _TBD_ |
+| Photo | 7.7% | 9.4% |
 
 ### Performance by Document Type
 
-| Document Type | Baseline Exact Match | Fine-Tuned Exact Match |
-|---|---|---|
-| Albania ID | _TBD_ | _TBD_ |
-| Azerbaijan Passport | _TBD_ | _TBD_ |
-| Spain ID | _TBD_ | _TBD_ |
-| Greece Passport | _TBD_ | _TBD_ |
+| Document Type | Baseline Exact Match | Fine-Tuned Exact Match | Δ |
+|---|---|---|---|
+| Albania ID (`alb_id`) | 19.4% | 18.8% | -0.6% |
+| Azerbaijan Passport (`aze_passport`) | 2.1% | 2.8% | +0.7% |
+| Spain ID (`esp_id`) | 5.5% | 15.2% | **+9.7%** |
+| Estonia ID (`est_id`) | 6.7% | 12.7% | **+6.0%** |
+| Finland ID (`fin_id`) | 7.3% | 2.4% | -4.9% |
+| Greece Passport (`grc_passport`) | 3.5% | 7.0% | +3.5% |
+| Latvia Passport (`lva_passport`) | 4.3% | 2.4% | -1.9% |
+| Russia Internal Passport (`rus_internalpassport`) | 6.2% | 2.7% | -3.5% |
+| Serbia Passport (`srb_passport`) | 2.6% | 7.8% | **+5.2%** |
+| Slovakia ID (`svk_id`) | 19.3% | 22.7% | **+3.4%** |
 
 ## Architecture
 
