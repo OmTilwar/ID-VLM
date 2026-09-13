@@ -1,0 +1,40 @@
+name: ID-VLM Ragas Multimodal Evaluation
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  ragas-doc-evaluate:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: "pip"
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run Test Suite (85 Tests)
+      run: |
+        python -m pytest tests/ -v
+
+    - name: Run Ragas Multimodal Document Evaluation
+      run: |
+        python src/ragas_doc_eval.py
+
+    - name: Upload Ragas Report Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: id-vlm-ragas-report
+        path: outputs/ragas_id_vlm_benchmark.json
