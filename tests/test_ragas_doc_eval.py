@@ -25,12 +25,12 @@ class TestIDVLMRagas:
 
     def test_context_precision_perfect(self, evaluator):
         retrieved = [(1, "Target Chunk", 0.95), (0, "Header Chunk", 0.40)]
-        precision = evaluator.compute_context_precision(retrieved, target_idx=1)
+        precision = evaluator.compute_context_precision(retrieved, target_indices=[1])
         assert precision == 1.0
 
     def test_context_precision_second_rank(self, evaluator):
         retrieved = [(0, "Header Chunk", 0.95), (1, "Target Chunk", 0.40)]
-        precision = evaluator.compute_context_precision(retrieved, target_idx=1)
+        precision = evaluator.compute_context_precision(retrieved, target_indices=[1])
         assert precision == 0.5
 
     def test_context_recall(self, evaluator):

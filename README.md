@@ -78,17 +78,17 @@ To evaluate document extraction and zero-hallucination compliance across interna
 ### 📊 Ragas Evaluation Scorecard
 
 ```text
-================================================================================
-ID-VLM: RAGAS MULTIMODAL DOCUMENT EVALUATION SCORECARD
-================================================================================
-Ragas Metric             | Zero-Shot Baseline | Fine-Tuned ID-VLM  | Delta / Gain    
---------------------------------------------------------------------------------
-Context Precision        |           0.4333   |           0.4333   | 0.00% (Parity)  
-Context Recall           |           0.6500   |           0.6500   | 0.00% (Parity)  
-Faithfulness (Grounded)  |           0.6000   |           0.9100   | +31.00% 🏆      
-Answer Relevancy         |           0.7459   |           0.7772   | +3.13% 🏆       
-Region Latency           |          50.382 ms |          17.777 ms | Real-time ⚡    
-================================================================================
+===================================================================================================
+ID-VLM: RAGAS MULTIMODAL DOCUMENT & RETRIEVAL EVALUATION SCORECARD
+===================================================================================================
+Ragas Metric             | Naive Baseline   | Hybrid RRF (Retr)  | Fine-Tuned + RRF   | Total Gain  
+---------------------------------------------------------------------------------------------------
+Context Precision        |         0.4611  |           0.5944  |           0.5944  | +13.33% 🚀  
+Context Recall           |         0.5167  |           0.7833  |           0.7833  | +26.67% 🎯  
+Faithfulness (Grounded)  |         0.6000  |           0.6000  |           0.9100  | +31.00% 🏆  
+Answer Relevancy         |         0.7459  |           0.7459  |           0.7772  | +3.13% 🏆   
+Retrieval Latency        |        56.857 ms |          22.039 ms |          21.727 ms | Real-time [FAST]
+===================================================================================================
 ```
 
 To run the automated Ragas Multimodal evaluation suite:
