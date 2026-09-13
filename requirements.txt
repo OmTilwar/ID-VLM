@@ -8,6 +8,9 @@ matplotlib>=3.7.0
 seaborn>=0.12.0
 python-Levenshtein>=0.21.0
 tqdm>=4.65.0
+sentence-transformers
+ragas==0.2.14
+datasets
 
 # API (stretch goal)
 fastapi>=0.104.0

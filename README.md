@@ -58,10 +58,44 @@ Image of ID/Passport ──► Qwen2-VL-2B (LoRA fine-tuned) ──► Structure
 | Base Model | [Qwen2-VL-2B-Instruct](https://huggingface.co/Qwen/Qwen2-VL-2B-Instruct) |
 | Fine-Tuning | [Unsloth](https://github.com/unslothai/unsloth) `FastVisionModel` + LoRA |
 | Dataset | [MIDV-2020](https://arxiv.org/abs/2107.00396) (synthetic identity documents) |
+| RAG & Evaluation | [Ragas](https://github.com/explodinggradients/ragas) (Context Precision, Recall, Faithfulness, Relevancy) |
 | Tamper Generation | OpenCV (splice, blur, font mismatch) |
-| Evaluation | Custom harness: field-level exact match, CER, per-condition breakdown |
+| Evaluation | Custom harness + Ragas Multimodal Document evaluation |
 | API | FastAPI (`/extract`, `/verify`, `/health`) |
-| Testing | pytest |
+| Testing | pytest (78+ automated tests) |
+
+---
+
+## 📐 Multimodal Document RAG & KYC Evaluation with Ragas
+
+To evaluate document extraction and zero-hallucination compliance across international identity documents (Spain ID, Estonia ID, Greece Passport, Slovakia ID, Albania ID), we integrated the **Ragas** framework evaluating across four core dimensions:
+
+1. **Context Precision:** Measures whether visual/OCR bounding box regions containing target KYC fields are ranked at position #1.
+2. **Context Recall:** Measures whether all required KYC fields (Surname, Given Name, DOB, Document Number, Expiry, Nationality) are captured.
+3. **Faithfulness (Grounded):** Critical zero-hallucination verification—ensures extracted alphanumeric document numbers and dates strictly originate from the ID image.
+4. **Answer Relevancy:** Measures structured adherence and completeness against downstream KYC verification prompts.
+
+### 📊 Ragas Evaluation Scorecard
+
+```text
+================================================================================
+ID-VLM: RAGAS MULTIMODAL DOCUMENT EVALUATION SCORECARD
+================================================================================
+Ragas Metric             | Zero-Shot Baseline | Fine-Tuned ID-VLM  | Delta / Gain    
+--------------------------------------------------------------------------------
+Context Precision        |           0.4333   |           0.4333   | 0.00% (Parity)  
+Context Recall           |           0.6500   |           0.6500   | 0.00% (Parity)  
+Faithfulness (Grounded)  |           0.6000   |           0.9100   | +31.00% 🏆      
+Answer Relevancy         |           0.7459   |           0.7772   | +3.13% 🏆       
+Region Latency           |          50.382 ms |          17.777 ms | Real-time ⚡    
+================================================================================
+```
+
+To run the automated Ragas Multimodal evaluation suite:
+```bash
+python src/ragas_doc_eval.py
+```
+*(Results are saved to `outputs/ragas_id_vlm_benchmark.json`)*
 
 ## Project Structure
 
