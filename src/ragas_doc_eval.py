@@ -1,11 +1,17 @@
 """
-ID-VLM: Multimodal Document RAG & KYC Verification Evaluation with Ragas
-=======================================================================
-Evaluates Vision-Language Document Extraction and Retrieval across 4 core Ragas dimensions:
-  1. Context Precision  -> Visual/OCR Region Ranking Precision for target KYC fields (Hybrid + Re-Ranking)
-  2. Context Recall     -> Ground-truth field coverage across document zones (MRZ, Header, Body)
-  3. Faithfulness       -> Zero-hallucination verification (strict character grounding against ID image)
-  4. Answer Relevancy   -> Downstream KYC prompt alignment and structured JSON compliance
+ID-VLM: OCR-Region Retrieval — Prototype Sanity Check
+=====================================================
+Compares naive dense retrieval with hybrid BM25 + dense (Reciprocal Rank Fusion) for
+locating the OCR text regions that hold KYC fields, on 5 hand-written document items.
+
+Scores are Ragas-style heuristics (embedding similarity / keyword coverage) modelled on:
+  1. Context Precision  -> is a region containing the target field ranked first?
+  2. Context Recall     -> are the required field values present in the retrieved regions?
+  3. Faithfulness       -> do the extracted values appear in the document text?
+  4. Answer Relevancy   -> is the output similar to the KYC prompt?
+
+Limitations: this does NOT call the ragas library, and the scored extraction outputs are
+stored strings, not live Qwen2-VL inference. Real extraction metrics live in src/evaluate.py.
 """
 
 import os

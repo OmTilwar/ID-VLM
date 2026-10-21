@@ -58,44 +58,28 @@ Image of ID/Passport ──► Qwen2-VL-2B (LoRA fine-tuned) ──► Structure
 | Base Model | [Qwen2-VL-2B-Instruct](https://huggingface.co/Qwen/Qwen2-VL-2B-Instruct) |
 | Fine-Tuning | [Unsloth](https://github.com/unslothai/unsloth) `FastVisionModel` + LoRA |
 | Dataset | [MIDV-2020](https://arxiv.org/abs/2107.00396) (synthetic identity documents) |
-| RAG & Evaluation | [Ragas](https://github.com/explodinggradients/ragas) (Context Precision, Recall, Faithfulness, Relevancy) |
+| Retrieval prototype | BM25 + dense retrieval with Reciprocal Rank Fusion over OCR text regions (sanity check — see below) |
 | Tamper Generation | OpenCV (splice, blur, font mismatch) |
-| Evaluation | Custom harness + Ragas Multimodal Document evaluation |
+| Evaluation | Custom harness (field exact match, CER, JSON parse rate) |
 | API | FastAPI (`/extract`, `/verify`, `/health`) |
-| Testing | pytest (78+ automated tests) |
+| Testing | pytest (85+ automated tests) |
 
 ---
 
-## 📐 Multimodal Document RAG & KYC Evaluation with Ragas
+## 🧪 OCR-Region Retrieval — Prototype Sanity Check
 
-To evaluate document extraction and zero-hallucination compliance across international identity documents (Spain ID, Estonia ID, Greece Passport, Slovakia ID, Albania ID), we integrated the **Ragas** framework evaluating across four core dimensions:
+`src/ragas_doc_eval.py` prototypes retrieval of the OCR text regions that contain KYC fields (surname, given name, DOB, document number, expiry, nationality), comparing naive dense retrieval with hybrid BM25 + dense fused by Reciprocal Rank Fusion.
 
-1. **Context Precision:** Measures whether visual/OCR bounding box regions containing target KYC fields are ranked at position #1.
-2. **Context Recall:** Measures whether all required KYC fields (Surname, Given Name, DOB, Document Number, Expiry, Nationality) are captured.
-3. **Faithfulness (Grounded):** Critical zero-hallucination verification—ensures extracted alphanumeric document numbers and dates strictly originate from the ID image.
-4. **Answer Relevancy:** Measures structured adherence and completeness against downstream KYC verification prompts.
+**Scope and limitations:**
+- **5 hand-written document items** (Spain ID, Estonia ID, Greece passport, Slovakia ID, Albania ID).
+- **Retrieval is real**; the extraction outputs being scored are **stored strings** in the benchmark file, not live Qwen2-VL inference.
+- Scores are embedding-similarity heuristics *modelled on* the Ragas metric definitions. The script does **not** call the Ragas library.
 
-### 📊 Ragas Evaluation Scorecard
+This is a wiring check for the retrieval prototype, not a measure of extraction quality. The extraction results that matter are in **Key Results** above, produced by the real evaluation harness (`src/evaluate.py`).
 
-```text
-===================================================================================================
-ID-VLM: RAGAS MULTIMODAL DOCUMENT & RETRIEVAL EVALUATION SCORECARD
-===================================================================================================
-Ragas Metric             | Naive Baseline   | Hybrid RRF (Retr)  | Fine-Tuned + RRF   | Total Gain  
----------------------------------------------------------------------------------------------------
-Context Precision        |         0.4611  |           0.5944  |           0.5944  | +13.33% 🚀  
-Context Recall           |         0.5167  |           0.7833  |           0.7833  | +26.67% 🎯  
-Faithfulness (Grounded)  |         0.6000  |           0.6000  |           0.9100  | +31.00% 🏆  
-Answer Relevancy         |         0.7459  |           0.7459  |           0.7772  | +3.13% 🏆   
-Retrieval Latency        |        56.857 ms |          22.039 ms |          21.727 ms | Real-time [FAST]
-===================================================================================================
-```
-
-To run the automated Ragas Multimodal evaluation suite:
 ```bash
-python src/ragas_doc_eval.py
+python src/ragas_doc_eval.py   # writes outputs/ragas_id_vlm_benchmark.json
 ```
-*(Results are saved to `outputs/ragas_id_vlm_benchmark.json`)*
 
 ## Project Structure
 
