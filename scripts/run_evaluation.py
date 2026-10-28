@@ -50,7 +50,7 @@ def main():
     print("=" * 60)
 
     # Load predictions
-    with open(args.predictions, "r") as f:
+    with open(args.predictions, "r", encoding="utf-8") as f:
         predictions = json.load(f)
     print(f"Loaded {len(predictions)} predictions from {args.predictions}")
 
@@ -93,7 +93,7 @@ def main():
         print("COMPARISON MODE")
         print(f"{'=' * 60}")
 
-        with open(args.compare, "r") as f:
+        with open(args.compare, "r", encoding="utf-8") as f:
             finetuned_predictions = json.load(f)
         finetuned_predictions = finetuned_predictions[:n]
 
@@ -110,6 +110,9 @@ def main():
         print("IMPROVEMENT SUMMARY")
         print(f"{'=' * 60}")
         print(f"  Exact Match:    {delta.get('mean_exact_match', 0):+.1%}")
+        print(f"  Norm. Match:    {delta.get('mean_normalized_match', 0):+.1%}")
+        print(f"  Value Recall:   {delta.get('value_recall', 0):+.1%}")
+        print(f"  Key Coverage:   {delta.get('mean_key_coverage', 0):+.1%}")
         print(f"  CER:            {delta.get('mean_cer', 0):+.4f}")
         print(f"  Doc Accuracy:   {delta.get('document_accuracy', 0):+.1%}")
         print(f"  JSON Parse:     {comparison['json_parse_rate']['delta']:+.1%}")
@@ -119,7 +122,7 @@ def main():
             finetuned_report,
             os.path.join(args.output_dir, "report_finetuned.json"),
         )
-        with open(os.path.join(args.output_dir, "comparison.json"), "w") as f:
+        with open(os.path.join(args.output_dir, "comparison.json"), "w", encoding="utf-8") as f:
             json.dump(comparison, f, indent=2, default=str)
         print(f"\nComparison saved to {args.output_dir}/comparison.json")
 

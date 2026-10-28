@@ -1,7 +1,10 @@
 """
 ID-VLM Evaluation Harness
 Comprehensive evaluation metrics for VLM-based identity document field extraction:
-  - Field-level exact match
+  - Field-level exact match (strict: key and value must match)
+  - Normalized field match (key must match; value compared after normalization)
+  - Value recall (key-independent: was the value transcribed anywhere in the output?)
+  - Key coverage (fraction of ground-truth keys present in the output)
   - Character Error Rate (CER) via Levenshtein distance
   - Document-level accuracy
   - JSON parse rate
@@ -12,6 +15,7 @@ Comprehensive evaluation metrics for VLM-based identity document field extractio
 import os
 import json
 import re
+import unicodedata
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -67,6 +71,68 @@ def compute_cer(predicted: str, ground_truth: str) -> float:
     return distance / len(gt)
 
 
+def normalize_value(value: Any) -> str:
+    """
+    Normalize a field value for lenient comparison.
+
+    Strips diacritics, removes every non-alphanumeric character and uppercases,
+    so "14. 09. 1960" == "14.09.1960" and "NIŠ" == "nis".
+    """
+    text = _to_str(value)
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return re.sub(r"[^A-Za-z0-9]", "", text).upper()
+
+
+def values_match(field_name: str, predicted: Any, ground_truth: Any) -> bool:
+    """
+    Compare two field values after normalization.
+
+    Gender fields are often bilingual on the card ("M / M", "S/F"); a prediction
+    matches if it equals any of the slash-separated tokens.
+    """
+    pred_norm = normalize_value(predicted)
+    gt_norm = normalize_value(ground_truth)
+    if not gt_norm:
+        return not pred_norm
+    if pred_norm == gt_norm:
+        return True
+    if field_name in ("gender", "sex"):
+        tokens = {normalize_value(t) for t in re.split(r"[/\s]+", _to_str(ground_truth))}
+        return pred_norm in (tokens - {""})
+    return False
+
+
+def compute_value_recall(
+    pred_fields: Dict[str, Any],
+    gt_fields: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Key-independent recall: for each non-empty ground-truth field, check whether
+    its normalized value appears anywhere in the prediction (under any key, at
+    any nesting depth).
+
+    This measures how well the model *reads* the document, separately from
+    whether it uses the expected key names. A value can be credited even if it
+    sits under the wrong key, so report it alongside strict metrics, not instead.
+
+    Returns:
+        Dict with "per_field" {field_name: bool} and "value_recall" (float).
+    """
+    pred_values = _flatten_values(pred_fields)
+    per_field = {}
+    for field_name, gt_value in gt_fields.items():
+        if not normalize_value(gt_value):
+            continue
+        per_field[field_name] = any(
+            values_match(field_name, pv, gt_value) for pv in pred_values
+        )
+    n = len(per_field)
+    return {
+        "per_field": per_field,
+        "value_recall": sum(per_field.values()) / n if n else 0.0,
+    }
+
+
 def compute_field_accuracy(
     pred_fields: Dict[str, Any],
     gt_fields: Dict[str, Any],
@@ -113,6 +179,8 @@ def compute_field_accuracy(
 
         results[field_name] = {
             "match": match,
+            "normalized_match": values_match(field_name, pred_value, gt_value),
+            "key_present": field_name in pred_fields,
             "cer": cer,
             "predicted": pred_str,
             "ground_truth": gt_str,
@@ -121,12 +189,20 @@ def compute_field_accuracy(
     # Aggregate
     n_fields = len(results)
     n_correct = sum(1 for r in results.values() if r["match"])
+    n_norm_correct = sum(1 for r in results.values() if r["normalized_match"])
     mean_cer = np.mean([r["cer"] for r in results.values()]) if results else 0.0
+
+    # CER restricted to fields whose key was produced, so missing keys don't
+    # masquerade as transcription errors
+    present_cers = [r["cer"] for r in results.values() if r["key_present"]]
 
     return {
         "per_field": results,
         "exact_match_rate": n_correct / n_fields if n_fields > 0 else 0.0,
+        "normalized_match_rate": n_norm_correct / n_fields if n_fields > 0 else 0.0,
         "mean_cer": float(mean_cer),
+        "mean_cer_present": float(np.mean(present_cers)) if present_cers else None,
+        "key_coverage": len(all_pred_fields & all_gt_fields) / n_fields if n_fields > 0 else 0.0,
         "all_correct": (n_correct == n_fields) and n_fields > 0,
         "fields_found": len(all_pred_fields & all_gt_fields),
         "fields_missing": len(all_gt_fields - all_pred_fields),
@@ -244,9 +320,11 @@ def evaluate_predictions(
 
         # Compute field accuracy
         field_result = compute_field_accuracy(pred_fields, gt_fields)
+        recall_result = compute_value_recall(pred_fields, gt_fields)
 
         sample_result = {
             "field_accuracy": field_result,
+            "value_recall": recall_result,
             "json_valid": is_valid,
             "doc_type": doc_type,
             "capture_mode": capture_mode,
@@ -260,6 +338,8 @@ def evaluate_predictions(
 
         # Aggregate by field name
         for field_name, field_data in field_result["per_field"].items():
+            field_data = dict(field_data)
+            field_data["value_found"] = recall_result["per_field"].get(field_name)
             by_field_name[field_name].append(field_data)
 
     # Compute overall metrics
@@ -280,9 +360,13 @@ def evaluate_predictions(
     field_breakdown = {}
     for fname, field_results in by_field_name.items():
         n_match = sum(1 for r in field_results if r["match"])
+        n_norm = sum(1 for r in field_results if r["normalized_match"])
+        found = [r["value_found"] for r in field_results if r["value_found"] is not None]
         mean_cer = np.mean([r["cer"] for r in field_results])
         field_breakdown[fname] = {
             "exact_match_rate": n_match / len(field_results),
+            "normalized_match_rate": n_norm / len(field_results),
+            "value_recall": sum(found) / len(found) if found else 0.0,
             "mean_cer": float(mean_cer),
             "n_samples": len(field_results),
         }
@@ -394,6 +478,9 @@ def format_report_table(report: Dict[str, Any]) -> str:
     overall = report["overall"]
     lines.append(f"\nOverall Metrics ({report['n_samples']} samples):")
     lines.append(f"  Field Exact Match:     {overall.get('mean_exact_match', 0):.1%}")
+    lines.append(f"  Normalized Match:      {overall.get('mean_normalized_match', 0):.1%}")
+    lines.append(f"  Value Recall (any key):{overall.get('value_recall', 0):>6.1%}")
+    lines.append(f"  Key Coverage:          {overall.get('mean_key_coverage', 0):.1%}")
     lines.append(f"  Mean CER:              {overall.get('mean_cer', 0):.4f}")
     lines.append(f"  Document-Level Acc:    {overall.get('document_accuracy', 0):.1%}")
     lines.append(f"  JSON Parse Rate:       {report['json_parse_rate']:.1%}")
@@ -427,12 +514,14 @@ def format_report_table(report: Dict[str, Any]) -> str:
     # By field
     if report.get("by_field"):
         lines.append(f"\nBy Field Name:")
-        lines.append(f"  {'Field':<20} {'Exact Match':>12} {'CER':>8} {'Samples':>8}")
-        lines.append(f"  {'-'*20} {'-'*12} {'-'*8} {'-'*8}")
+        lines.append(f"  {'Field':<20} {'Exact Match':>12} {'Norm Match':>11} {'Value Rec':>10} {'CER':>8} {'Samples':>8}")
+        lines.append(f"  {'-'*20} {'-'*12} {'-'*11} {'-'*10} {'-'*8} {'-'*8}")
         for fn, metrics in sorted(report["by_field"].items()):
             lines.append(
                 f"  {fn:<20} "
                 f"{metrics.get('exact_match_rate', 0):>11.1%} "
+                f"{metrics.get('normalized_match_rate', 0):>10.1%} "
+                f"{metrics.get('value_recall', 0):>9.1%} "
                 f"{metrics.get('mean_cer', 0):>7.4f} "
                 f"{metrics.get('n_samples', 0):>8}"
             )
@@ -549,28 +638,61 @@ def _aggregate_results(sample_results: List[Dict]) -> Dict[str, Any]:
     if not sample_results:
         return {
             "mean_exact_match": 0.0,
+            "mean_normalized_match": 0.0,
+            "mean_key_coverage": 0.0,
+            "value_recall": 0.0,
             "mean_cer": 0.0,
             "document_accuracy": 0.0,
             "n_samples": 0,
         }
 
-    exact_matches = [s["field_accuracy"]["exact_match_rate"] for s in sample_results]
-    cers = [s["field_accuracy"]["mean_cer"] for s in sample_results]
-    doc_correct = sum(1 for s in sample_results if s["field_accuracy"]["all_correct"])
+    fa = [s["field_accuracy"] for s in sample_results]
+    exact_matches = [f["exact_match_rate"] for f in fa]
+    cers = [f["mean_cer"] for f in fa]
+    doc_correct = sum(1 for f in fa if f["all_correct"])
+
+    # Value recall is pooled over fields (not averaged per sample) so documents
+    # with many fields weigh proportionally
+    found = [
+        v for s in sample_results
+        for v in s.get("value_recall", {}).get("per_field", {}).values()
+    ]
 
     return {
         "mean_exact_match": float(np.mean(exact_matches)),
+        "mean_normalized_match": float(np.mean([f.get("normalized_match_rate", 0.0) for f in fa])),
+        "mean_key_coverage": float(np.mean([f.get("key_coverage", 0.0) for f in fa])),
+        "value_recall": sum(found) / len(found) if found else 0.0,
         "mean_cer": float(np.mean(cers)),
         "document_accuracy": doc_correct / len(sample_results),
         "n_samples": len(sample_results),
     }
 
 
+def _to_str(value: Any) -> str:
+    """Convert a field value (str, number, dict, list, None) to a string."""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value if value is not None else "")
+
+
+def _flatten_values(obj: Any) -> List[str]:
+    """Collect every leaf value of a (possibly nested) JSON object as strings."""
+    if isinstance(obj, dict):
+        return [v for item in obj.values() for v in _flatten_values(item)]
+    if isinstance(obj, list):
+        return [v for item in obj for v in _flatten_values(item)]
+    if obj is None:
+        return []
+    return [str(obj)]
+
+
 def _compute_delta(baseline: Dict, finetuned: Dict) -> Dict[str, float]:
     """Compute deltas between baseline and fine-tuned metrics."""
     delta = {}
     for key in ["mean_exact_match", "mean_cer", "document_accuracy",
-                 "exact_match_rate"]:
+                 "exact_match_rate", "mean_normalized_match", "normalized_match_rate",
+                 "mean_key_coverage", "value_recall"]:
         b_val = baseline.get(key, 0.0) if baseline else 0.0
         f_val = finetuned.get(key, 0.0) if finetuned else 0.0
         delta[key] = f_val - b_val

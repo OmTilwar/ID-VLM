@@ -95,10 +95,23 @@ COLOR_SHIFT_RANGE = (10, 40)  # Hue shift range in degrees
 # ──────────────────────────────────────────────
 # Prompt Templates
 # ──────────────────────────────────────────────
+# Generic prompt — used by the API, where the document type is unknown.
+# The first training run used this for training and evaluation, which left the
+# model guessing key names; see SCHEMA_PROMPT_TEMPLATE.
 EXTRACTION_PROMPT = (
     "Extract all text fields from this identity document. "
     "Return a JSON object with field names as keys and their values as strings. "
     "Use snake_case for field names (e.g., birth_date, document_number)."
+)
+
+# Schema prompt — lists the exact keys for the document type so the model does
+# not have to guess them (MIDV-2020 uses e.g. "number", "name", "gender", not
+# "document_number", "given_name", "sex"). Filled by dataset.build_schema_prompt().
+SCHEMA_PROMPT_TEMPLATE = (
+    "Extract the text fields from this identity document. "
+    "Return a JSON object using exactly these keys: {keys}. "
+    "Copy each value exactly as printed on the document. "
+    "Omit any key whose field is not present."
 )
 
 TAMPER_DETECTION_PROMPT = (

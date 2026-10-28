@@ -14,6 +14,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from src.evaluate import (
     compute_cer,
     compute_field_accuracy,
+    compute_value_recall,
+    normalize_value,
+    values_match,
     parse_vlm_json_output,
     evaluate_predictions,
     generate_comparison_report,
@@ -447,3 +450,87 @@ class TestTamperEvaluation:
 
         result = evaluate_tamper_predictions(predictions, ground_truths)
         assert result["field_identification_accuracy"] == 1.0
+
+
+# ──────────────────────────────────────────────
+# Normalized Matching & Value Recall Tests
+# ──────────────────────────────────────────────
+
+class TestNormalizedMatching:
+    """Tests for lenient value normalization."""
+
+    def test_date_punctuation_and_spaces(self):
+        assert normalize_value("14. 09. 1960") == normalize_value("14.09.1960")
+
+    def test_diacritics_and_case(self):
+        assert normalize_value("NIŠ") == normalize_value("nis")
+
+    def test_non_string_values(self):
+        assert normalize_value(30) == "30"
+        assert normalize_value(None) == ""
+
+    def test_bilingual_gender(self):
+        assert values_match("gender", "M", "M / M")
+        assert values_match("gender", "F", "S/F")
+        assert not values_match("gender", "M", "S/F")
+
+    def test_different_values_do_not_match(self):
+        assert not values_match("surname", "JONES", "SMITH")
+
+
+class TestValueRecall:
+    """Tests for key-independent value recall."""
+
+    def test_value_under_wrong_key_is_found(self):
+        gt = {"number": "040793370", "birth_date": "14. 09. 1960"}
+        pred = {"document_number": "040793370", "date_of_birth": "14.09.1960"}
+        result = compute_value_recall(pred, gt)
+        assert result["value_recall"] == 1.0
+
+    def test_nested_values_are_searched(self):
+        gt = {"surname": "APINIS"}
+        pred = {"name": {"family_name": "APINIS"}}
+        assert compute_value_recall(pred, gt)["value_recall"] == 1.0
+
+    def test_missing_value(self):
+        gt = {"surname": "SMITH", "name": "JOHN"}
+        pred = {"surname": "SMITH"}
+        assert compute_value_recall(pred, gt)["value_recall"] == 0.5
+
+    def test_empty_ground_truth_values_skipped(self):
+        gt = {"surname": "SMITH", "middle_name": ""}
+        result = compute_value_recall({"surname": "SMITH"}, gt)
+        assert "middle_name" not in result["per_field"]
+        assert result["value_recall"] == 1.0
+
+
+class TestNewFieldAccuracyMetrics:
+    """Tests for normalized match, key coverage and present-key CER."""
+
+    def test_normalized_match_needs_right_key(self):
+        gt = {"birth_date": "14. 09. 1960", "number": "040793370"}
+        pred = {"birth_date": "14.09.1960", "document_number": "040793370"}
+        result = compute_field_accuracy(pred, gt)
+        assert result["exact_match_rate"] == 0.0
+        assert result["normalized_match_rate"] == 0.5
+        assert result["key_coverage"] == 0.5
+
+    def test_cer_present_ignores_missing_keys(self):
+        gt = {"surname": "SMITH", "name": "JOHN"}
+        pred = {"surname": "SMITH"}
+        result = compute_field_accuracy(pred, gt)
+        assert result["mean_cer"] == 0.5          # missing key counts as CER 1.0
+        assert result["mean_cer_present"] == 0.0  # only scored where the key exists
+
+    def test_report_includes_value_recall(self):
+        predictions = [{"raw_output": '{"document_number": "AB123", "surname": "SMITH"}'}]
+        ground_truths = [{
+            "fields": {"number": "AB123", "surname": "SMITH"},
+            "metadata": {"doc_type": "alb_id", "capture_mode": "photo"},
+        }]
+        report = evaluate_predictions(predictions, ground_truths)
+        assert report["overall"]["mean_exact_match"] == 0.5
+        assert report["overall"]["value_recall"] == 1.0
+        assert report["overall"]["mean_key_coverage"] == 0.5
+        assert report["by_field"]["number"]["value_recall"] == 1.0
+        assert "Value Recall" in format_report_table(report)

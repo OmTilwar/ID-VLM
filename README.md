@@ -6,12 +6,26 @@ Fine-tuned **Qwen2-VL-2B** via LoRA ([Unsloth](https://github.com/unslothai/unsl
 
 ## Key Results
 
+Run 1 — 150 test documents (10 document types × 15), generic extraction prompt.
+
 | Metric | Zero-Shot Baseline | Fine-Tuned (LoRA) | Δ |
 |---|---|---|---|
-| Field Exact Match | 7.7% | 9.4% | +1.8% |
+| Value Recall (any key) | 30.8% | 41.1% | +10.3 pts |
+| Key Coverage | 13.8% | 17.2% | +3.4 pts |
+| JSON Parse Rate | 67.3% | 86.0% | +18.7 pts |
+| Normalized Field Match | 8.6% | 10.4% | +1.8 pts |
+| Field Exact Match | 7.7% | 9.4% | +1.7 pts |
 | Character Error Rate (CER) | 0.9365 | 0.9976 | +0.0611 |
-| JSON Parse Rate | 67.3% | 86.0% | +18.7% |
-| Document-Level Accuracy | 0.0% | 0.0% | +0.0% |
+| Document-Level Accuracy | 0.0% | 0.0% | +0.0 pts |
+
+**How to read this.** Run 1 used a generic prompt ("extract all text fields") that never told the model which key names to use, while the strict metrics require the exact MIDV-2020 key (`number`, not `document_number`). Only ~14–17% of ground-truth keys appeared in either model's output, so field match and CER mostly measure key-naming mismatches, not reading errors. **Value recall** checks whether each ground-truth value was transcribed anywhere in the output (normalizing case, diacritics, spacing and date punctuation): fine-tuning improved it on every core field — expiry date 59.3% → 74.8%, birth date 53.3% → 66.7%, document number 45.3% → 54.0%. Because it ignores keys, value recall measures reading, not extraction.
+
+**Run 2 (next):** per-document-type schema prompts listing the exact keys (`scripts/apply_schema_prompts.py`), response-only loss, LoRA adapter evaluation, and a train-sample sanity check — so strict field accuracy measures extraction directly.
+
+Re-score saved predictions with:
+```bash
+python scripts/run_evaluation.py --predictions <baseline.json> --compare <finetuned.json> --ground-truth data/processed/test.jsonl
+```
 
 ### Performance by Capture Condition
 
@@ -62,7 +76,7 @@ Image of ID/Passport ──► Qwen2-VL-2B (LoRA fine-tuned) ──► Structure
 | Tamper Generation | OpenCV (splice, blur, font mismatch) |
 | Evaluation | Custom harness (field exact match, CER, JSON parse rate) |
 | API | FastAPI (`/extract`, `/verify`, `/health`) |
-| Testing | pytest (85+ automated tests) |
+| Testing | pytest (100+ automated tests) |
 
 ---
 

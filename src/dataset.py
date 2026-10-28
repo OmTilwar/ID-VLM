@@ -249,6 +249,64 @@ def build_instruction_pair(
     }
 
 
+def build_schema_prompt(field_names: List[str]) -> str:
+    """Build an extraction prompt that lists the exact keys to return."""
+    return config.SCHEMA_PROMPT_TEMPLATE.format(keys=", ".join(field_names))
+
+
+def collect_doc_type_schemas(dataset: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+    """
+    Collect the union of ground-truth keys per document type, in first-seen order.
+
+    Most MIDV-2020 document types have one fixed key set; some (e.g. Russian
+    internal passports) vary slightly, hence the union.
+    """
+    schemas: Dict[str, List[str]] = {}
+    for sample in dataset:
+        doc_type = sample.get("metadata", {}).get("doc_type", "unknown")
+        try:
+            fields = json.loads(sample["messages"][1]["content"][0]["text"])
+        except (KeyError, IndexError, json.JSONDecodeError):
+            continue
+        keys = schemas.setdefault(doc_type, [])
+        for key in fields:
+            if key not in keys:
+                keys.append(key)
+    return schemas
+
+
+def apply_schema_prompts(
+    dataset: List[Dict[str, Any]],
+    schemas: Optional[Dict[str, List[str]]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Replace each sample's extraction prompt with its document type's schema prompt.
+
+    Modifies samples in place (and returns the list). The schema is also stored
+    in metadata["schema"] so inference can rebuild the same prompt.
+    """
+    if schemas is None:
+        schemas = collect_doc_type_schemas(dataset)
+    for sample in dataset:
+        doc_type = sample.get("metadata", {}).get("doc_type", "unknown")
+        if doc_type not in schemas:
+            continue
+        prompt = build_schema_prompt(schemas[doc_type])
+        for content in sample["messages"][0]["content"]:
+            if content.get("type") == "text":
+                content["text"] = prompt
+        sample["metadata"]["schema"] = schemas[doc_type]
+    return dataset
+
+
+def get_prompt(sample: Dict[str, Any]) -> str:
+    """Return the text prompt stored in a sample's user message."""
+    for content in sample["messages"][0]["content"]:
+        if content.get("type") == "text":
+            return content["text"]
+    return config.EXTRACTION_PROMPT
+
+
 def build_tamper_instruction_pair(
     image_path: str,
     is_tampered: bool,
@@ -421,6 +479,9 @@ def create_dataset(
     if not dataset:
         print("⚠️ No dataset files found in data_dir. Generating synthetic document dataset...")
         dataset = generate_synthetic_id_dataset(data_dir, num_samples=100)
+
+    # Tell the model which keys to use for each document type
+    apply_schema_prompts(dataset)
 
     # Shuffle and limit
     random.seed(config.RANDOM_SEED)

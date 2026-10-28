@@ -16,6 +16,10 @@ from src.dataset import (
     parse_midv_ground_truth,
     build_instruction_pair,
     build_tamper_instruction_pair,
+    build_schema_prompt,
+    collect_doc_type_schemas,
+    apply_schema_prompts,
+    get_prompt,
     get_capture_mode,
     split_dataset,
     save_dataset,
@@ -427,3 +431,44 @@ class TestHelpers:
         path = str(tmp_path / "tiny.jpg")
         tiny.save(path)
         assert validate_image(path) is False
+
+
+# ──────────────────────────────────────────────
+# Schema Prompt Tests
+# ──────────────────────────────────────────────
+
+class TestSchemaPrompts:
+    """Tests for per-document-type schema prompts."""
+
+    def _pair(self, mock_image, doc_type, fields):
+        return build_instruction_pair(mock_image, fields, doc_type)
+
+    def test_prompt_lists_keys(self):
+        prompt = build_schema_prompt(["surname", "name", "number"])
+        assert "surname, name, number" in prompt
+
+    def test_schema_is_union_per_doc_type(self, mock_image):
+        dataset = [
+            self._pair(mock_image, "rus_internalpassport", {"surname": "A", "name": "B"}),
+            self._pair(mock_image, "rus_internalpassport", {"surname": "C", "patronymic": "D"}),
+            self._pair(mock_image, "fin_id", {"number": "1"}),
+        ]
+        schemas = collect_doc_type_schemas(dataset)
+        assert schemas["rus_internalpassport"] == ["surname", "name", "patronymic"]
+        assert schemas["fin_id"] == ["number"]
+
+    def test_apply_rewrites_prompt_and_metadata(self, mock_image):
+        dataset = [self._pair(mock_image, "fin_id", {"surname": "X", "number": "1"})]
+        apply_schema_prompts(dataset)
+        assert get_prompt(dataset[0]) == build_schema_prompt(["surname", "number"])
+        assert dataset[0]["metadata"]["schema"] == ["surname", "number"]
+
+    def test_apply_keeps_answers_unchanged(self, mock_image):
+        dataset = [self._pair(mock_image, "fin_id", {"surname": "X"})]
+        before = dataset[0]["messages"][1]["content"][0]["text"]
+        apply_schema_prompts(dataset)
+        assert dataset[0]["messages"][1]["content"][0]["text"] == before
+
+    def test_get_prompt_defaults_to_stored_text(self, mock_image, sample_fields):
+        pair = build_instruction_pair(mock_image, sample_fields, "alb_id")
+        assert get_prompt(pair) == config.EXTRACTION_PROMPT
